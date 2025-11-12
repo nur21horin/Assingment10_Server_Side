@@ -21,10 +21,14 @@ const client = new MongoClient(uri, {
   },
 });
 
+app.get("/",(req,res)=>{
+    res.send("Server is running");
+})
 async function run() {
   try {
     await client.connect();
-    const foodCollection = client.db("foodDB").collection("foods");
+    const db=client.db("foodDB");
+    const foodCollection = db.collection("foods");
 
     //  Create (Add Food)
     app.post("/foods", async (req, res) => {

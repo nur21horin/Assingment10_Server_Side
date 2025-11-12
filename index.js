@@ -30,16 +30,24 @@ async function run() {
     const db=client.db("foodDB");
     const foodCollection = db.collection("foods");
 
-    //  Create (Add Food)
+    //  Add Food
     app.post("/foods", async (req, res) => {
       const food = req.body;
+      //DeaFault food status
       food.food_status = "Available"; 
       const result = await foodCollection.insertOne(food);
       res.send(result);
     });
 
-   
+   //reAd food Item
 
+   app.get("/foods",async(req,res)=>{
+    const result=await foodCollection.find({food_status:"Available"}).toArray();
+    res.send(result);
+   });
+
+
+   await client.db("admin").command({ping:1})
     console.log(" Successfully connected to MongoDB!");
   } catch (error) {
     console.error(" MongoDB connection failed:", error);

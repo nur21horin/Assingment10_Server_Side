@@ -53,18 +53,14 @@ async function run() {
     res.send(result);
    })
 
-   
-
-   //Updated food item
-   app.put("/foods/:id",async(req,res)=>{
-    const id=req.params.id;
-    const updatedFood=req.body;
-
-    const query={_id:new ObjectId(id)};
-    const update={$set:updatedFood};
-    const result=await foodCollection.updateOne(query,update);
+   //reads food itesm by logged in User
+   app.get("/my-foods/:email",async(req,res)=>{
+    const email=req.params.email;
+    const result=await foodCollection.find({donator_email:email}).toArray();
     res.send(result);
    })
+
+   
 
    //Delete food
    app.delete("/foods/:id",async(req,res)=>{

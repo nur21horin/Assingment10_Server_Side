@@ -49,10 +49,14 @@ async function run() {
 
     //Read single Items
     app.get("/foods/:id", async (req, res) => {
-      const result = await foodCollection
-        .find({ food_status: "Available" })
-        .toArray();
-      res.send(result);
+        const id=req.params.id;
+        try{
+            const food=await foodCollection.findOne({_id:new ObjectId(id)});
+            if(!food) return res.status(404).send({message:"Food not found"});
+            res.send(food);
+        }catch(error){
+            res.status(500).send({message:"Invalid ID format"});
+        }
     });
 
     //reads food itesm by logged in User

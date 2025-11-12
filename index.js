@@ -46,6 +46,32 @@ async function run() {
     res.send(result);
    });
 
+   
+   //Read single Items
+   app.get("/foods/:id",async(req,res)=>{
+    const result=await foodCollection.find({food_status:"Available"}).toArray();
+    res.send(result);
+   })
+
+   
+
+   //Updated food item
+   app.put("/foods/:id",async(req,res)=>{
+    const id=req.params.id;
+    const updatedFood=req.body;
+
+    const query={_id:new ObjectId(id)};
+    const update={$set:updatedFood};
+    const result=await foodCollection.updateOne(query,update);
+    res.send(result);
+   })
+
+   //Delete food
+   app.delete("/foods/:id",async(req,res)=>{
+    const id=req.params.id;
+    const result=await foodCollection.deleteOne({_id:new ObjectId(id)});
+    res.send(result);
+   })
 
    await client.db("admin").command({ping:1})
     console.log(" Successfully connected to MongoDB!");

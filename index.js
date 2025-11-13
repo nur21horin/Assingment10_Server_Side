@@ -4,32 +4,36 @@ const cors = require("cors");
 require("dotenv").config();
 const admin = require("firebase-admin");
 
-//let serviceAccount = require("./config/my-project-client-side-firebase-adminsdk-fbsvc-0ce34b0f8f.json");
-
-const decoded=Buffer.from(process.env.FIREBASE_SERVICE_KEY,"base64")
-const serviceAccount=JSON.parse(decoded)
-// try {
-//   const serviceAccount = JSON.parse(
-//     Buffer.from(process.env.FIREBASE_SERVICE_KEY, "base64").toString("utf8")
-//   );
-//   admin.initializeApp({
-//     credential: admin.credential.cert(serviceAccount),
-//   });
-//   console.log("Firebase Admin initialized successfully!");
-// } catch (error) {
-//   console.error("Failed to initialize Firebase Admin:", error);
-//   process.exit(1); // Exit if Firebase fails to initialize
-// }
+const decoded = Buffer.from(process.env.FIREBASE_SERVICE_KEY, "base64");
+const serviceAccount = JSON.parse(decoded);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
-console.log("Firebase Admin initialized successfully!");
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-app.use(cors());
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://ephemeral-chebakia-89a6e4.netlify.app",
+];
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+  })
+);
+
 app.use(express.json());
 
 const verifyToken = async (req, res, next) => {
@@ -59,7 +63,7 @@ const client = new MongoClient(uri, {
 });
 
 app.get("/", (req, res) => {
-  res.send("Food Sharing Server is Running...");
+  res.send("SharePlate Server is Running...");
 });
 
 async function run() {
@@ -265,9 +269,6 @@ async function run() {
         res.status(500).send({ message: "Failed to fetch user foods", error });
       }
     });
-
-    // await client.db("admin").command({ ping: 1 });
-    console.log("Successfully connected to MongoDB!");
   } catch (error) {
     console.error("MongoDB connection failed:", error);
   }

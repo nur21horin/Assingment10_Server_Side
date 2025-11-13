@@ -44,7 +44,7 @@ async function run() {
     });
 
     //CREATE FOOD REQUEST
-     
+
     app.post("/requests", async (req, res) => {
       const { food_id, user_name, user_email } = req.body;
 
@@ -99,6 +99,21 @@ async function run() {
         res.status(500).send({ message: "Failed to submit request", error });
       }
     });
+    //delete a request by id
+    app.delete("/requests/:id", async (req, res) => {
+      const id = req.params.id;
+      try {
+        const result = await requestsCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+        if (result.deletedCount === 0)
+          return res.status(404).send({ message: "Request not found" });
+        res.send({ message: "Request deleted successfully" });
+      } catch (error) {
+        console.error("Failed to delete request:", error);
+        res.status(500).send({ message: "Failed to delete request", error });
+      }
+    });
     //get all request by user email
 
     app.get("/requests/:email", async (req, res) => {
@@ -116,7 +131,7 @@ async function run() {
       }
     });
 
-    //get Avaubleble food 
+    //get Avaubleble food
     app.get("/foods", async (req, res) => {
       try {
         const foods = await foodCollection
@@ -188,7 +203,7 @@ async function run() {
     });
 
     // DELETE FOOD
-      
+
     app.delete("/foods/:id", async (req, res) => {
       const id = req.params.id;
       try {
@@ -203,7 +218,6 @@ async function run() {
       }
     });
 
-   
     await client.db("admin").command({ ping: 1 });
     console.log(" Successfully connected to MongoDB!");
   } catch (error) {

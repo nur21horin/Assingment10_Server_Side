@@ -114,6 +114,7 @@ async function run() {
         res.status(500).send({ message: "Failed to delete request", error });
       }
     });
+
     //get all request by user email
 
     app.get("/requests/:email", async (req, res) => {
@@ -128,6 +129,58 @@ async function run() {
       } catch (error) {
         console.error("Error fetching requests:", error);
         res.status(500).send({ message: "Failed to fetch requests" });
+      }
+    });
+    // Get all requests for a specific food (for food owner)
+    app.get("/requests/food/:foodId", async (req, res) => {
+      const { foodId } = req.params;
+      try {
+        const requests = await requestsCollection
+          .find({ food_id: foodId })
+          .toArray();
+        res.send(requests);
+      } catch (error) {
+        console.error("Error fetching requests for food:", error);
+        res
+          .status(500)
+          .send({ message: "Failed to fetch food requests", error });
+      }
+    });
+
+    // Update request status (Accept / Reject)
+    app.patch("/requests/:id", async (req, res) => {
+      const { id } = req.params;
+      const { status } = req.body;
+
+      if (!["Accepted", "Rejected"].includes(status)) {
+        return res.status(400).send({ message: "Invalid status" });
+      }
+
+      try {
+        const request = await requestsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        if (!request)
+          return res.status(404).send({ message: "Request not found" });
+
+        // Update request status
+        await requestsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status } }
+        );
+
+        // If accepted, mark food as donated
+        if (status === "Accepted") {
+          await foodCollection.updateOne(
+            { _id: new ObjectId(request.food_id) },
+            { $set: { food_status: "Donated" } }
+          );
+        }
+
+        res.send({ message: `Request ${status.toLowerCase()} successfully.` });
+      } catch (error) {
+        console.error("Failed to update request status:", error);
+        res.status(500).send({ message: "Failed to update request", error });
       }
     });
 

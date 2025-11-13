@@ -1,10 +1,14 @@
 {
   "dependencies": {
+    "@tanstack/react-query": "^5.90.8",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "firebase": "^12.5.0",
+    "firebase-admin": "^13.6.0",
     "mongodb": "^7.0.0",
-    "mongoose": "^8.19.3"
+    "mongoose": "^8.19.3",
+    "react-hook-form": "^7.66.0"
   },
   "name": "my-project-server-side",
   "version": "1.0.0",

@@ -2,6 +2,29 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
+const admin = require("firebase-admin");
+
+//let serviceAccount = require("./config/my-project-client-side-firebase-adminsdk-fbsvc-0ce34b0f8f.json");
+
+const decoded=Buffer.from(process.env.FIREBASE_SERVICE_KEY,"base64")
+const serviceAccount=JSON.parse(decoded)
+// try {
+//   const serviceAccount = JSON.parse(
+//     Buffer.from(process.env.FIREBASE_SERVICE_KEY, "base64").toString("utf8")
+//   );
+//   admin.initializeApp({
+//     credential: admin.credential.cert(serviceAccount),
+//   });
+//   console.log("Firebase Admin initialized successfully!");
+// } catch (error) {
+//   console.error("Failed to initialize Firebase Admin:", error);
+//   process.exit(1); // Exit if Firebase fails to initialize
+// }
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+console.log("Firebase Admin initialized successfully!");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -9,7 +32,23 @@ const port = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// MongoDB Connection
+const verifyToken = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    return res.status(401).send({ message: "Unauthorized: No token provided" });
+  }
+  const token = authHeader.split(" ")[1];
+  try {
+    const decodedToken = await admin.auth().verifyIdToken(token);
+    req.user = decodedToken;
+    next();
+  } catch (error) {
+    return res
+      .status(401)
+      .send({ message: "Unauthorized: Invalid token", error });
+  }
+};
+
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.gikxdnx.mongodb.net/?appName=Cluster0`;
 const client = new MongoClient(uri, {
   serverApi: {
@@ -19,7 +58,6 @@ const client = new MongoClient(uri, {
   },
 });
 
-// Root test route
 app.get("/", (req, res) => {
   res.send("Food Sharing Server is Running...");
 });
@@ -31,11 +69,11 @@ async function run() {
     const foodCollection = db.collection("foods");
     const requestsCollection = db.collection("requests");
 
-    //Add food item
-    app.post("/foods", async (req, res) => {
+    app.post("/foods", verifyToken, async (req, res) => {
       try {
         const food = req.body;
         food.food_status = "Available";
+        food.donator_email = req.user.email;
         const result = await foodCollection.insertOne(food);
         res.status(201).send(result);
       } catch (error) {
@@ -43,38 +81,26 @@ async function run() {
       }
     });
 
-    //CREATE FOOD REQUEST
-
-    app.post("/requests", async (req, res) => {
-      const { food_id, user_name, user_email } = req.body;
-
-      if (!food_id || !user_email || !user_name) {
+    app.post("/requests", verifyToken, async (req, res) => {
+      const { food_id, user_name } = req.body;
+      const user_email = req.user.email;
+      if (!food_id || !user_email || !user_name)
         return res.status(400).send({ message: "Missing required fields" });
-      }
-
       try {
-        // Check if food exists and available
         const food = await foodCollection.findOne({
           _id: new ObjectId(food_id),
           food_status: "Available",
         });
-
-        if (!food) {
+        if (!food)
           return res.status(404).send({ message: "Food not available" });
-        }
-
-        // Check duplicate request
         const existing = await requestsCollection.findOne({
           food_id,
           user_email,
         });
-        if (existing) {
+        if (existing)
           return res
             .status(409)
             .send({ message: "Already requested this food" });
-        }
-
-        // Insert new request
         const requestDoc = {
           food_id,
           user_name,
@@ -83,108 +109,114 @@ async function run() {
           status: "Pending",
         };
         const result = await requestsCollection.insertOne(requestDoc);
-
-        // // Update food status to "Requested"
-        // await foodCollection.updateOne(
-        //   { _id: new ObjectId(food_id) },
-        //   { $set: { food_status: "Requested" } }
-        // );
-
         res.status(201).send({
           message: "Request submitted successfully",
           requestId: result.insertedId,
         });
       } catch (error) {
-        console.error(error);
         res.status(500).send({ message: "Failed to submit request", error });
       }
     });
-    //delete a request by id
-    app.delete("/requests/:id", async (req, res) => {
+
+    app.delete("/requests/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       try {
         const result = await requestsCollection.deleteOne({
           _id: new ObjectId(id),
+          user_email: req.user.email,
         });
         if (result.deletedCount === 0)
-          return res.status(404).send({ message: "Request not found" });
+          return res
+            .status(404)
+            .send({ message: "Request not found or unauthorized" });
         res.send({ message: "Request deleted successfully" });
       } catch (error) {
-        console.error("Failed to delete request:", error);
         res.status(500).send({ message: "Failed to delete request", error });
       }
     });
 
-    //get all request by user email
-
-    app.get("/requests/:email", async (req, res) => {
-      const email = req.params.email;
-
+    app.get("/requests/:email", verifyToken, async (req, res) => {
+      if (req.params.email !== req.user.email)
+        return res.status(403).send({ message: "Forbidden: Access denied" });
       try {
         const requests = await requestsCollection
-          .find({ user_email: email })
-          .toArray();
-
-        res.send(requests);
-      } catch (error) {
-        console.error("Error fetching requests:", error);
-        res.status(500).send({ message: "Failed to fetch requests" });
-      }
-    });
-    // Get all requests for a specific food (for food owner)
-    app.get("/requests/food/:foodId", async (req, res) => {
-      const { foodId } = req.params;
-      try {
-        const requests = await requestsCollection
-          .find({ food_id: foodId })
+          .find({ user_email: req.user.email })
           .toArray();
         res.send(requests);
       } catch (error) {
-        console.error("Error fetching requests for food:", error);
-        res
-          .status(500)
-          .send({ message: "Failed to fetch food requests", error });
+        res.status(500).send({ message: "Failed to fetch requests", error });
       }
     });
 
-    // Update request status (Accept / Reject)
-    app.patch("/requests/:id", async (req, res) => {
+    app.patch("/requests/:id", verifyToken, async (req, res) => {
       const { id } = req.params;
       const { status } = req.body;
-
-      if (!["Accepted", "Rejected"].includes(status)) {
+      if (!["Accepted", "Rejected"].includes(status))
         return res.status(400).send({ message: "Invalid status" });
-      }
-
       try {
         const request = await requestsCollection.findOne({
           _id: new ObjectId(id),
         });
         if (!request)
           return res.status(404).send({ message: "Request not found" });
-
-        // Update request status
+        const food = await foodCollection.findOne({
+          _id: new ObjectId(request.food_id),
+        });
+        if (food.donator_email !== req.user.email)
+          return res
+            .status(403)
+            .send({ message: "Forbidden: Only owner can update" });
         await requestsCollection.updateOne(
           { _id: new ObjectId(id) },
           { $set: { status } }
         );
-
-        // If accepted, mark food as donated
-        if (status === "Accepted") {
+        if (status === "Accepted")
           await foodCollection.updateOne(
             { _id: new ObjectId(request.food_id) },
             { $set: { food_status: "Donated" } }
           );
-        }
-
         res.send({ message: `Request ${status.toLowerCase()} successfully.` });
       } catch (error) {
-        console.error("Failed to update request status:", error);
         res.status(500).send({ message: "Failed to update request", error });
       }
     });
 
-    //get Avaubleble food
+    app.put("/foods/:id", verifyToken, async (req, res) => {
+      const id = req.params.id;
+      const { _id, ...updatedFood } = req.body;
+      try {
+        const food = await foodCollection.findOne({ _id: new ObjectId(id) });
+        if (!food) return res.status(404).send({ message: "Food not found" });
+        if (food.donator_email !== req.user.email)
+          return res
+            .status(403)
+            .send({ message: "Forbidden: Only owner can update" });
+        const result = await foodCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updatedFood }
+        );
+        res.send({ message: "Food updated successfully", result });
+      } catch (error) {
+        res.status(500).send({ message: "Failed to update food", error });
+      }
+    });
+
+    app.delete("/foods/:id", verifyToken, async (req, res) => {
+      const id = req.params.id;
+      try {
+        const food = await foodCollection.findOne({ _id: new ObjectId(id) });
+        if (!food) return res.status(404).send({ message: "Food not found" });
+        if (food.donator_email !== req.user.email)
+          return res
+            .status(403)
+            .send({ message: "Forbidden: Only owner can delete" });
+        await foodCollection.deleteOne({ _id: new ObjectId(id) });
+        res.send({ message: "Food deleted successfully" });
+      } catch (error) {
+        res.status(500).send({ message: "Failed to delete food", error });
+      }
+    });
+
     app.get("/foods", async (req, res) => {
       try {
         const foods = await foodCollection
@@ -196,7 +228,6 @@ async function run() {
       }
     });
 
-    //Get featured foood j
     app.get("/foods/featured", async (req, res) => {
       try {
         const topFoods = await foodCollection
@@ -211,7 +242,6 @@ async function run() {
       }
     });
 
-    //SIngle Food Item
     app.get("/foods/:id", async (req, res) => {
       const id = req.params.id;
       try {
@@ -223,12 +253,12 @@ async function run() {
       }
     });
 
-    /*GET FOODS BY DONATOR*/
-    app.get("/my-foods/:email", async (req, res) => {
-      const email = req.params.email;
+    app.get("/my-foods/:email", verifyToken, async (req, res) => {
+      if (req.params.email !== req.user.email)
+        return res.status(403).send({ message: "Forbidden: Access denied" });
       try {
         const result = await foodCollection
-          .find({ donator_email: email })
+          .find({ donator_email: req.user.email })
           .toArray();
         res.send(result);
       } catch (error) {
@@ -236,50 +266,15 @@ async function run() {
       }
     });
 
-    //Updated food donator
-    app.put("/foods/:id", async (req, res) => {
-      const id = req.params.id;
-      const { _id, ...updatedFood } = req.body;
-
-      try {
-        const result = await foodCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: updatedFood }
-        );
-        if (result.matchedCount === 0)
-          return res.status(404).send({ message: "Food not found" });
-        res.send({ message: "Food updated successfully", result });
-      } catch (error) {
-        console.error("Update food error:", error);
-        res.status(500).send({ message: "Failed to update food", error });
-      }
-    });
-
-    // DELETE FOOD
-
-    app.delete("/foods/:id", async (req, res) => {
-      const id = req.params.id;
-      try {
-        const result = await foodCollection.deleteOne({
-          _id: new ObjectId(id),
-        });
-        if (result.deletedCount === 0)
-          return res.status(404).send({ message: "Food not found" });
-        res.send({ message: "Food deleted successfully" });
-      } catch (error) {
-        res.status(500).send({ message: "Failed to delete food", error });
-      }
-    });
-
-    await client.db("admin").command({ ping: 1 });
-    console.log(" Successfully connected to MongoDB!");
+    // await client.db("admin").command({ ping: 1 });
+    console.log("Successfully connected to MongoDB!");
   } catch (error) {
-    console.error(" MongoDB connection failed:", error);
+    console.error("MongoDB connection failed:", error);
   }
 }
 
 run().catch(console.dir);
 
 app.listen(port, () => {
-  console.log(` Server running on port ${port}`);
+  console.log(`Server running on port ${port}`);
 });

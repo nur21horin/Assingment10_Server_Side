@@ -4,7 +4,6 @@ const cors = require("cors");
 require("dotenv").config();
 const admin = require("firebase-admin");
 
-// Firebase Admin Setup
 const decoded = Buffer.from(process.env.FIREBASE_SERVICE_KEY, "base64");
 const serviceAccount = JSON.parse(decoded);
 
@@ -15,12 +14,11 @@ admin.initializeApp({
 const app = express();
 const port = process.env.PORT || 3000;
 
-// ✅ FIXED CORS FOR VERCEL + NETLIFY
 app.use(
   cors({
     origin: [
-      "https://ephemeral-chebakia-89a6e4.netlify.app", // your frontend
-      "http://localhost:5173", // local dev
+      "https://ephemeral-chebakia-89a6e4.netlify.app", 
+      "http://localhost:5173", 
     ],
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -28,7 +26,6 @@ app.use(
   })
 );
 
-// Extra CORS Protection for Vercel
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "https://ephemeral-chebakia-89a6e4.netlify.app");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -39,7 +36,6 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
-// Middleware: Verify Firebase Token
 const verifyToken = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
@@ -55,7 +51,6 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
-// MongoDB Connection
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.gikxdnx.mongodb.net/?appName=Cluster0`;
 const client = new MongoClient(uri, {
   serverApi: { version: ServerApiVersion.v1, strict: true, deprecationErrors: true },
@@ -72,7 +67,6 @@ async function run() {
     const foodCollection = db.collection("foods");
     const requestsCollection = db.collection("requests");
 
-    // Add Food
     app.post("/foods", verifyToken, async (req, res) => {
       try {
         const food = req.body;
@@ -85,7 +79,6 @@ async function run() {
       }
     });
 
-    // Make Request
     app.post("/requests", verifyToken, async (req, res) => {
       const { food_id, user_name } = req.body;
       const user_email = req.user.email;
@@ -123,7 +116,6 @@ async function run() {
       }
     });
 
-    // Delete Request
     app.delete("/requests/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       try {
@@ -141,7 +133,7 @@ async function run() {
       }
     });
 
-    // Get My Requests
+
     app.get("/requests/:email", verifyToken, async (req, res) => {
       if (req.params.email !== req.user.email)
         return res.status(403).send({ message: "Forbidden" });
@@ -154,7 +146,6 @@ async function run() {
       }
     });
 
-    // Update Request Status
     app.patch("/requests/:id", verifyToken, async (req, res) => {
       const { id } = req.params;
       const { status } = req.body;
@@ -188,7 +179,6 @@ async function run() {
       }
     });
 
-    // Update Food
     app.put("/foods/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const { _id, ...updatedFood } = req.body;
@@ -211,7 +201,7 @@ async function run() {
       }
     });
 
-    // Delete Food
+   
     app.delete("/foods/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
 
@@ -229,7 +219,7 @@ async function run() {
       }
     });
 
-    // Get All Available Foods
+
     app.get("/foods", async (req, res) => {
       try {
         const foods = await foodCollection.find({ food_status: "Available" }).toArray();
@@ -239,7 +229,6 @@ async function run() {
       }
     });
 
-    // Get Featured Foods
     app.get("/foods/featured", async (req, res) => {
       try {
         const topFoods = await foodCollection
@@ -252,7 +241,7 @@ async function run() {
       }
     });
 
-    // Get One Food
+
     app.get("/foods/:id", async (req, res) => {
       const id = req.params.id;
 
@@ -266,7 +255,6 @@ async function run() {
       }
     });
 
-    // Get My Foods
     app.get("/my-foods/:email", verifyToken, async (req, res) => {
       if (req.params.email !== req.user.email)
         return res.status(403).send({ message: "Forbidden" });
@@ -285,7 +273,6 @@ async function run() {
 
 run().catch(console.dir);
 
-// For local dev
 if (process.env.NODE_ENV !== "production") {
   app.listen(port, () => {
     console.log(`Server running on port ${port}`);

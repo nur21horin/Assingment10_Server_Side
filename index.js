@@ -4,6 +4,7 @@ const cors = require("cors");
 require("dotenv").config();
 const admin = require("firebase-admin");
 
+// Firebase Admin Setup
 const decoded = Buffer.from(process.env.FIREBASE_SERVICE_KEY, "base64");
 const serviceAccount = JSON.parse(decoded);
 
@@ -14,28 +15,31 @@ admin.initializeApp({
 const app = express();
 const port = process.env.PORT || 3000;
 
-const allowedOrigins = [
-  "http://localhost:5173",
-  "https://ephemeral-chebakia-89a6e4.netlify.app",
-];
-
+// ✅ FIXED CORS FOR VERCEL + NETLIFY
 app.use(
   cors({
-    origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
+    origin: [
+      "https://ephemeral-chebakia-89a6e4.netlify.app", // your frontend
+      "http://localhost:5173", // local dev
+    ],
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   })
 );
 
+// Extra CORS Protection for Vercel
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "https://ephemeral-chebakia-89a6e4.netlify.app");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  if (req.method === "OPTIONS") return res.sendStatus(200);
+  next();
+});
+
 app.use(express.json());
 
+// Middleware: Verify Firebase Token
 const verifyToken = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
@@ -47,19 +51,14 @@ const verifyToken = async (req, res, next) => {
     req.user = decodedToken;
     next();
   } catch (error) {
-    return res
-      .status(401)
-      .send({ message: "Unauthorized: Invalid token", error });
+    return res.status(401).send({ message: "Unauthorized: Invalid token", error });
   }
 };
 
+// MongoDB Connection
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.gikxdnx.mongodb.net/?appName=Cluster0`;
 const client = new MongoClient(uri, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: true,
-    deprecationErrors: true,
-  },
+  serverApi: { version: ServerApiVersion.v1, strict: true, deprecationErrors: true },
 });
 
 app.get("/", (req, res) => {
@@ -73,6 +72,7 @@ async function run() {
     const foodCollection = db.collection("foods");
     const requestsCollection = db.collection("requests");
 
+    // Add Food
     app.post("/foods", verifyToken, async (req, res) => {
       try {
         const food = req.body;
@@ -85,26 +85,26 @@ async function run() {
       }
     });
 
+    // Make Request
     app.post("/requests", verifyToken, async (req, res) => {
       const { food_id, user_name } = req.body;
       const user_email = req.user.email;
+
       if (!food_id || !user_email || !user_name)
         return res.status(400).send({ message: "Missing required fields" });
+
       try {
         const food = await foodCollection.findOne({
           _id: new ObjectId(food_id),
           food_status: "Available",
         });
-        if (!food)
-          return res.status(404).send({ message: "Food not available" });
-        const existing = await requestsCollection.findOne({
-          food_id,
-          user_email,
-        });
+
+        if (!food) return res.status(404).send({ message: "Food not available" });
+
+        const existing = await requestsCollection.findOne({ food_id, user_email });
         if (existing)
-          return res
-            .status(409)
-            .send({ message: "Already requested this food" });
+          return res.status(409).send({ message: "Already requested this food" });
+
         const requestDoc = {
           food_id,
           user_name,
@@ -112,6 +112,7 @@ async function run() {
           requested_at: new Date(),
           status: "Pending",
         };
+
         const result = await requestsCollection.insertOne(requestDoc);
         res.status(201).send({
           message: "Request submitted successfully",
@@ -122,6 +123,7 @@ async function run() {
       }
     });
 
+    // Delete Request
     app.delete("/requests/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       try {
@@ -129,91 +131,97 @@ async function run() {
           _id: new ObjectId(id),
           user_email: req.user.email,
         });
+
         if (result.deletedCount === 0)
-          return res
-            .status(404)
-            .send({ message: "Request not found or unauthorized" });
+          return res.status(404).send({ message: "Request not found or unauthorized" });
+
         res.send({ message: "Request deleted successfully" });
       } catch (error) {
         res.status(500).send({ message: "Failed to delete request", error });
       }
     });
 
+    // Get My Requests
     app.get("/requests/:email", verifyToken, async (req, res) => {
       if (req.params.email !== req.user.email)
-        return res.status(403).send({ message: "Forbidden: Access denied" });
+        return res.status(403).send({ message: "Forbidden" });
+
       try {
-        const requests = await requestsCollection
-          .find({ user_email: req.user.email })
-          .toArray();
+        const requests = await requestsCollection.find({ user_email: req.user.email }).toArray();
         res.send(requests);
       } catch (error) {
         res.status(500).send({ message: "Failed to fetch requests", error });
       }
     });
 
+    // Update Request Status
     app.patch("/requests/:id", verifyToken, async (req, res) => {
       const { id } = req.params;
       const { status } = req.body;
+
       if (!["Accepted", "Rejected"].includes(status))
         return res.status(400).send({ message: "Invalid status" });
+
       try {
-        const request = await requestsCollection.findOne({
-          _id: new ObjectId(id),
-        });
-        if (!request)
-          return res.status(404).send({ message: "Request not found" });
-        const food = await foodCollection.findOne({
-          _id: new ObjectId(request.food_id),
-        });
+        const request = await requestsCollection.findOne({ _id: new ObjectId(id) });
+        if (!request) return res.status(404).send({ message: "Request not found" });
+
+        const food = await foodCollection.findOne({ _id: new ObjectId(request.food_id) });
         if (food.donator_email !== req.user.email)
-          return res
-            .status(403)
-            .send({ message: "Forbidden: Only owner can update" });
+          return res.status(403).send({ message: "Forbidden" });
+
         await requestsCollection.updateOne(
           { _id: new ObjectId(id) },
           { $set: { status } }
         );
-        if (status === "Accepted")
+
+        if (status === "Accepted") {
           await foodCollection.updateOne(
             { _id: new ObjectId(request.food_id) },
             { $set: { food_status: "Donated" } }
           );
+        }
+
         res.send({ message: `Request ${status.toLowerCase()} successfully.` });
       } catch (error) {
         res.status(500).send({ message: "Failed to update request", error });
       }
     });
 
+    // Update Food
     app.put("/foods/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const { _id, ...updatedFood } = req.body;
+
       try {
         const food = await foodCollection.findOne({ _id: new ObjectId(id) });
         if (!food) return res.status(404).send({ message: "Food not found" });
+
         if (food.donator_email !== req.user.email)
-          return res
-            .status(403)
-            .send({ message: "Forbidden: Only owner can update" });
+          return res.status(403).send({ message: "Forbidden" });
+
         const result = await foodCollection.updateOne(
           { _id: new ObjectId(id) },
           { $set: updatedFood }
         );
+
         res.send({ message: "Food updated successfully", result });
       } catch (error) {
         res.status(500).send({ message: "Failed to update food", error });
       }
     });
 
+    // Delete Food
     app.delete("/foods/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
+
       try {
         const food = await foodCollection.findOne({ _id: new ObjectId(id) });
         if (!food) return res.status(404).send({ message: "Food not found" });
+
         if (food.donator_email !== req.user.email)
-          return res
-            .status(403)
-            .send({ message: "Forbidden: Only owner can delete" });
+          return res.status(403).send({ message: "Forbidden" });
+
         await foodCollection.deleteOne({ _id: new ObjectId(id) });
         res.send({ message: "Food deleted successfully" });
       } catch (error) {
@@ -221,17 +229,17 @@ async function run() {
       }
     });
 
+    // Get All Available Foods
     app.get("/foods", async (req, res) => {
       try {
-        const foods = await foodCollection
-          .find({ food_status: "Available" })
-          .toArray();
+        const foods = await foodCollection.find({ food_status: "Available" }).toArray();
         res.send(foods);
       } catch (error) {
         res.status(500).send({ message: "Failed to fetch foods", error });
       }
     });
 
+    // Get Featured Foods
     app.get("/foods/featured", async (req, res) => {
       try {
         const topFoods = await foodCollection
@@ -240,30 +248,31 @@ async function run() {
           .toArray();
         res.send(topFoods);
       } catch (error) {
-        res
-          .status(500)
-          .send({ message: "Failed to fetch featured foods", error });
+        res.status(500).send({ message: "Failed to fetch featured foods", error });
       }
     });
 
+    // Get One Food
     app.get("/foods/:id", async (req, res) => {
       const id = req.params.id;
+
       try {
         const food = await foodCollection.findOne({ _id: new ObjectId(id) });
         if (!food) return res.status(404).send({ message: "Food not found" });
+
         res.send(food);
       } catch (error) {
         res.status(500).send({ message: "Invalid ID format" });
       }
     });
 
+    // Get My Foods
     app.get("/my-foods/:email", verifyToken, async (req, res) => {
       if (req.params.email !== req.user.email)
-        return res.status(403).send({ message: "Forbidden: Access denied" });
+        return res.status(403).send({ message: "Forbidden" });
+
       try {
-        const result = await foodCollection
-          .find({ donator_email: req.user.email })
-          .toArray();
+        const result = await foodCollection.find({ donator_email: req.user.email }).toArray();
         res.send(result);
       } catch (error) {
         res.status(500).send({ message: "Failed to fetch user foods", error });
@@ -276,6 +285,11 @@ async function run() {
 
 run().catch(console.dir);
 
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});
+// For local dev
+if (process.env.NODE_ENV !== "production") {
+  app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
+  });
+}
+
+module.exports = app;
